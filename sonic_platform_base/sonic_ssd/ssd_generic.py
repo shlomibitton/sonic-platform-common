@@ -21,6 +21,7 @@ except ImportError as e:
 SMARTCTL = "smartctl {} -a"
 INNODISK = "iSmart -d {}"
 VIRTIUM  = "SmartCmd -m {}"
+INNODISK_NVME = "iSMART_64 -d {}"
 
 NOT_AVAILABLE = "N/A"
 
@@ -43,9 +44,9 @@ class SsdUtil(SsdBase):
             "InnoDisk" : { "utility" : INNODISK, "parser" : self.parse_innodisk_info },
             "M.2"      : { "utility" : INNODISK, "parser" : self.parse_innodisk_info },
             "StorFly"  : { "utility" : VIRTIUM,  "parser" : self.parse_virtium_info },
-            "Virtium"  : { "utility" : VIRTIUM,  "parser" : self.parse_virtium_info }
+            "Virtium"  : { "utility" : VIRTIUM,  "parser" : self.parse_virtium_info },
+            "TOSHIBA"  : { "utility" : INNODISK_NVME,  "parser" : self.parse_innodisk_nvme_info }
         }
-
         self.dev = diskdev
         # Generic part
         self.fetch_generic_ssd_info(diskdev)
@@ -53,8 +54,12 @@ class SsdUtil(SsdBase):
 
         # Known vendor part
         if self.model:
-            model_short = self.model.split()[0]
-            if self.vendor_ssd_utility.has_key(model_short):
+            model_short = None
+            if self.vendor_ssd_utility.has_key(self.model.split()[0]):
+                model_short = self.model.split()[0]
+            elif ((len(self.model.split()) > 1) and (self.vendor_ssd_utility.has_key(self.model.split()[1]))):
+                model_short = self.model.split()[1]
+            if model_short:
                 self.fetch_vendor_ssd_info(diskdev, model_short)
                 self.parse_vendor_ssd_info(model_short)
             else:
@@ -77,13 +82,22 @@ class SsdUtil(SsdBase):
         self.ssd_info = self._execute_shell(self.vendor_ssd_utility["Generic"]["utility"].format(diskdev))
 
     def parse_generic_ssd_info(self):
-        self.model = self._parse_re('Device Model:\s*(.+?)\n', self.ssd_info)
+
+        if "nvme" in self.dev:
+            self.model = self._parse_re('Model Number:\s*(.+?)\n', self.ssd_info)
+        else:
+            self.model = self._parse_re('Device Model:\s*(.+?)\n', self.ssd_info)
+
         self.serial = self._parse_re('Serial Number:\s*(.+?)\n', self.ssd_info)
         self.firmware = self._parse_re('Firmware Version:\s*(.+?)\n', self.ssd_info)
 
     def parse_innodisk_info(self):
         self.health = self._parse_re('Health:\s*(.+?)%', self.vendor_ssd_info)
         self.temperature = self._parse_re('Temperature\s*\[\s*(.+?)\]', self.vendor_ssd_info)
+
+    def parse_innodisk_nvme_info(self):
+        self.health = self.vendor_ssd_info.splitlines()[13].split()[2]
+        self.temperature = self.vendor_ssd_info.splitlines()[14].split()[2]
 
     def parse_virtium_info(self):
         self.temperature = self._parse_re('Temperature_Celsius\s*\d*\s*(\d+?)\s+', self.vendor_ssd_info)
